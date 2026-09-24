@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>回数券 - バス乗車券プロップ</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#fcf8ee',
+                            cardBg: '#e3d2c0',
+                            purple: '#602283',
+                            teal: '#00aa88',
+                            brown: '#8b5a2b',
+                            textDark: '#1a1a1a',
+                            subText: '#555555'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome for standard icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* Disabling touch behaviors like pull-to-refresh for smooth drag */
+        body {
+            touch-action: pan-y;
+            user-select: none;
+            -webkit-user-select: none;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #1a1a1a;
+        }
+
+        /* Phone Container styling */
+        .phone-frame {
+            width: 100%;
+            max-width: 414px;
+            height: 100vh;
+            max-height: 896px;
+            background-color: #fcf8ee;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Jagged perforation line at bottom of ticket banner */
+        .zigzag-bottom {
+            background: #fcf8ee;
+            position: relative;
+        }
+        .zigzag-bottom::before {
+            content: "";
+            display: block;
+            position: absolute;
+            top: -12px;
+            left: 0;
+            width: 100%;
+            height: 12px;
+            background: radial-gradient(circle, transparent, transparent 50%, #fcf8ee 50%, #fcf8ee 100%);
+            background-size: 16px 24px;
+            background-position: 0 -12px;
+        }
+
+        /* Circular perforated teeth styling */
+        .ticket-teeth {
+            display: flex;
+            justify-content: space-between;
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 100%;
+            padding: 0 4px;
+            z-index: 10;
+        }
+        .ticket-tooth {
+            width: 12px;
+            height: 12px;
+            background-color: #fcf8ee;
+            border-radius: 50%;
+        }
+
+        /* 12-dot Rotating Spinner */
+        .dot-spinner {
+            position: relative;
+            width: 120px;
+            height: 120px;
+        }
+
+        .dot-spinner-item {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            margin-top: -6px;
+            margin-left: -6px;
+            border-radius: 50%;
+            background-color: #d1d5db; /* Light Gray default */
+        }
+
+        /* Continuous rotation animation for brown dot */
+        @keyframes rotateBrownDot {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .active-dot-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            animation: rotateBrownDot 3.0s steps(12) infinite;
+        }
+
+        .active-dot {
+            position: absolute;
+            top: 6px;
+            left: 54px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #8c5d3b; /* Brown color */
+        }
+
+        /* Custom Modal Backdrop Overlay */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(2px);
+        }
+
+        /* Custom Square Checkbox Style matching screenshots */
+        .custom-checkbox {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 44px;
+            height: 44px;
+            border: 2px solid #a0a0a0;
+            background-color: #ffffff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .custom-checkbox:checked {
+            border-color: #a0a0a0;
+            background-color: #ffffff;
+        }
+
+        .custom-checkbox:checked::after {
+            content: '✓';
+            font-size: 34px;
+            color: #e60012; /* Red Checkmark */
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        /* Bus watermark outline */
+        .bus-watermark {
+            opacity: 0.18;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-gray-900">
+
+    <div class="phone-frame flex flex-col justify-between select-none relative">
+        
+        <!-- Header Section -->
+        <div>
+            <!-- Header Bar -->
+            <div class="pt-3 pb-2 text-center bg-white border-b border-gray-200 relative">
+                <span class="text-lg font-bold text-gray-800">回数券</span>
+                <span class="absolute right-4 top-3 text-lg font-bold text-gray-700">1/2</span>
+            </div>
+
+            <!-- Tab Switcher (1 / 2) -->
+            <div class="flex justify-center bg-gray-200 p-1 my-2 mx-12 rounded-lg text-sm">
+                <button class="w-1/2 py-1 bg-white font-bold text-gray-800 rounded shadow-sm text-center">1</button>
+                <button class="w-1/2 py-1 font-bold text-gray-500 text-center">2</button>
+            </div>
+
+            <!-- Top Interactive Ticket Area -->
+            <div id="ticketContainer" class="relative overflow-hidden w-full min-h-[170px] bg-[#fcf8ee]">
+                
+                <!-- UNUSED STATE: Slideable Ticket Banner -->
+                <div id="slideTicket" class="absolute top-0 left-0 w-full h-[165px] bg-[#e7d8c6] border-b border-gray-300 shadow-sm transition-transform duration-75 cursor-grab active:cursor-grabbing z-20">
+                    
+                    <!-- Bus Watermark Background -->
+                    <div class="absolute inset-0 flex items-center justify-start pl-4 bus-watermark">
+                        <svg class="w-44 h-28 text-white fill-current" viewBox="0 0 24 24">
+                            <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+                        </svg>
+                    </div>
+
+                    <!-- Slide Text Banner -->
+                    <div class="pt-8 text-center relative z-10">
+                        <div class="bg-[#f0e4d7] py-2 px-4 mx-6 inline-block rounded-sm shadow-inner">
+                            <span class="text-gray-800 font-bold text-base tracking-wide">スライドして乗車券をもぎる➡</span>
+                        </div>
+                        <div class="mt-4 text-gray-700 text-sm font-semibold">
+                            有効期限：2027/03/23
+                        </div>
+                    </div>
+
+                    <!-- Bottom Perforated Teeth -->
+                    <div class="ticket-teeth">
+                        <div class="ticket-tooth"></div><div class="ticket-tooth"></div><div class="ticket-tooth"></div>
+                        <div class="ticket-tooth"></div><div class="ticket-tooth"></div><div class="ticket-tooth"></div>
+                        <div class="ticket-tooth"></div><div class="ticket-tooth"></div><div class="ticket-tooth"></div>
+                        <div class="ticket-tooth"></div><div class="ticket-tooth"></div><div class="ticket-tooth"></div>
+                        <div class="ticket-tooth"></div><div class="ticket-tooth"></div><div class="ticket-tooth"></div>
+                    </div>
+                </div>
+
+                <!-- USED STATE: Stamp and Spinner (Hidden initially until ticket is torn) -->
+                <div id="usedStampContainer" class="hidden flex-col items-center justify-center pt-2 pb-2 z-10 w-full">
+                    <!-- Rotating 12 Dots Spinner -->
+                    <div class="dot-spinner flex items-center justify-center my-2">
+                        <!-- Static 12 dots positioned in circle -->
+                        <div class="dot-spinner-item" style="transform: rotate(0deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(30deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(60deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(90deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(120deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(150deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(180deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(210deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(240deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(270deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(300deg) translate(48px)"></div>
+                        <div class="dot-spinner-item" style="transform: rotate(330deg) translate(48px)"></div>
+
+                        <!-- Single Rotating Brown Dot -->
+                        <div class="active-dot-container">
+                            <div class="active-dot"></div>
+                        </div>
+
+                        <!-- Center Text: 使用済 USED -->
+                        <div class="text-center z-10">
+                            <div class="text-[#8c5d3b] font-extrabold text-xl leading-tight">使用済</div>
+                            <div class="text-[#8c5d3b] font-extrabold text-sm tracking-wider">USED</div>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Current Date/Time -->
+                    <div id="currentDateTime" class="text-2xl font-semibold text-gray-900 mt-1 tracking-tight">
+                        2026/09/24 10:49
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="px-5 pt-2 pb-16">
+                <!-- Purple Dotted Divider -->
+                <div class="w-full my-3 border-b-4 border-dotted border-[#602283]"></div>
+
+                <!-- Route Title Header -->
+                <div class="text-[#602283] font-bold text-2xl mb-1">
+                    【利用券】
+                </div>
+
+                <!-- Stations Section -->
+                <div class="text-center my-4">
+                    <div class="text-[#602283] font-extrabold text-2xl tracking-wide">
+                        東京薬科大学
+                    </div>
+                    <div class="text-[#602283] font-bold text-2xl my-1">
+                        ↓↑
+                    </div>
+                    <div class="text-[#602283] font-extrabold text-2xl tracking-wide">
+                        豊田駅
+                    </div>
+                </div>
+
+                <!-- Purple Dotted Divider -->
+                <div class="w-full my-3 border-b-4 border-dotted border-[#602283]"></div>
+
+                <!-- Instructions and Rules Notice -->
+                <div class="mt-4">
+                    <div class="font-bold text-gray-900 text-base mb-1">
+                        【注意事項】
+                    </div>
+                    <div class="font-bold text-gray-900 text-lg leading-relaxed">
+                        必ず乗車直前にもぎり操作を行い、使用済の状態の画面を提示してください。
+                    </div>
+                    <div class="text-gray-900 font-medium text-base mt-4">
+                        決済番号：00085741638
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white border-t border-gray-200 flex justify-around items-center py-2 px-1 absolute bottom-0 left-0 right-0 z-30 text-xs">
+            <button class="flex flex-col items-center text-gray-400 w-1/5">
+                <i class="fa-solid fa-house text-lg mb-0.5"></i>
+                <span class="scale-90">予約</span>
+            </button>
+            <button class="flex flex-col items-center text-brand-teal w-1/5 font-bold">
+                <i class="fa-solid fa-ticket text-lg mb-0.5"></i>
+                <span class="scale-90">チケット</span>
+            </button>
+            <button class="flex flex-col items-center text-gray-400 w-1/5">
+                <i class="fa-solid fa-list-ul text-lg mb-0.5"></i>
+                <span class="scale-90">予約一覧</span>
+            </button>
+            <button class="flex flex-col items-center text-gray-400 w-1/5">
+                <i class="fa-solid fa-book-open text-lg mb-0.5"></i>
+                <span class="scale-90">NEWS</span>
+            </button>
+            <button class="flex flex-col items-center text-gray-400 w-1/5">
+                <i class="fa-solid fa-gear text-lg mb-0.5"></i>
+                <span class="scale-90">設定</span>
+            </button>
+        </div>
+
+        <div id="confirmModal" class="hidden absolute inset-0 modal-overlay z-50 flex items-center justify-center px-6">
+            <div class="bg-[#f2f2f2]/95 backdrop-blur-md w-full max-w-xs rounded-2xl overflow-hidden shadow-2xl text-center border border-white/20">
+                <!-- Modal Header / Content -->
+                <div class="p-5 border-b border-gray-300">
+                    <p class="text-gray-900 font-semibold text-sm leading-snug">
+                        チケットをもぎりますか？<br>
+                        もぎる場合は、下のチェックをいれてから<br>
+                        OKをタップしてください。
+                    </p>
+                    
+                    <!-- Checkbox Box -->
+                    <div class="mt-4 mb-1 flex justify-center items-center">
+                        <input type="checkbox" id="mogiriCheckbox" class="custom-checkbox rounded-sm">
+                    </div>
+                </div>
+
+                <!-- Modal Action Buttons -->
+                <div class="flex h-12 text-base font-medium">
+                    <button id="cancelBtn" class="w-1/2 text-blue-600 active:bg-gray-200/50 border-r border-gray-300 font-semibold flex items-center justify-center">
+                        CANCEL
+                    </button>
+                    <button id="okBtn" disabled class="w-1/2 text-blue-300 font-semibold flex items-center justify-center cursor-not-allowed">
+                        OK
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // DOM Elements
+        const slideTicket = document.getElementById('slideTicket');
+        const ticketContainer = document.getElementById('ticketContainer');
+        const confirmModal = document.getElementById('confirmModal');
+        const mogiriCheckbox = document.getElementById('mogiriCheckbox');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const okBtn = document.getElementById('okBtn');
+        const usedStampContainer = document.getElementById('usedStampContainer');
+        const currentDateTime = document.getElementById('currentDateTime');
+
+        let isDragging = false;
+        let startX = 0;
+        let currentX = 0;
+        const triggerThreshold = 140; // Pixels needed to trigger confirmation modal
+
+        // --- Drag / Swipe Events Setup ---
+        function onDragStart(e) {
+            isDragging = true;
+            startX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            slideTicket.style.transition = 'none';
+        }
+
+        function onDragMove(e) {
+            if (!isDragging) return;
+            const x = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const diffX = x - startX;
+
+            // Only allow rightward drag
+            if (diffX >= 0) {
+                currentX = diffX;
+                slideTicket.style.transform = `translateX(${currentX}px)`;
+            }
+
+            // Trigger modal early if dragged far enough
+            if (currentX > triggerThreshold) {
+                isDragging = false;
+                showModal();
+            }
+        }
+
+        function onDragEnd() {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            // If released before threshold, animate back to origin
+            if (currentX < triggerThreshold) {
+                slideTicket.style.transition = 'transform 0.2s ease-out';
+                slideTicket.style.transform = 'translateX(0px)';
+                currentX = 0;
+            } else {
+                showModal();
+            }
+        }
+
+        // Add event listeners for mouse and touch interactions
+        slideTicket.addEventListener('mousedown', onDragStart);
+        window.addEventListener('mousemove', onDragMove);
+        window.addEventListener('mouseup', onDragEnd);
+
+        slideTicket.addEventListener('touchstart', onDragStart, { passive: true });
+        window.addEventListener('touchmove', onDragMove, { passive: true });
+        window.addEventListener('touchend', onDragEnd);
+
+        // --- Modal Control Functions ---
+        function showModal() {
+            // Keep ticket slid partially offscreen
+            slideTicket.style.transition = 'transform 0.2s ease-out';
+            slideTicket.style.transform = `translateX(${window.innerWidth > 400 ? 250 : 200}px)`;
+            
+            // Display modal dialog
+            confirmModal.classList.remove('hidden');
+        }
+
+        function resetTicket() {
+            confirmModal.classList.add('hidden');
+            mogiriCheckbox.checked = false;
+            updateOkButtonState();
+
+            // Slide back to initial home position
+            slideTicket.style.transition = 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+            slideTicket.style.transform = 'translateX(0px)';
+            currentX = 0;
+        }
+
+        // --- Checkbox and Confirmation handlers ---
+        mogiriCheckbox.addEventListener('change', updateOkButtonState);
+
+        function updateOkButtonState() {
+            if (mogiriCheckbox.checked) {
+                okBtn.disabled = false;
+                okBtn.classList.remove('text-blue-300', 'cursor-not-allowed');
+                okBtn.classList.add('text-blue-600', 'active:bg-gray-200/50');
+            } else {
+                okBtn.disabled = true;
+                okBtn.classList.add('text-blue-300', 'cursor-not-allowed');
+                okBtn.classList.remove('text-blue-600', 'active:bg-gray-200/50');
+            }
+        }
+
+        cancelBtn.addEventListener('click', resetTicket);
+
+        okBtn.addEventListener('click', () => {
+            if (!mogiriCheckbox.checked) return;
+
+            // Animate ticket completely offscreen right
+            slideTicket.style.transition = 'transform 0.3s ease-in';
+            slideTicket.style.transform = 'translateX(100%)';
+
+            setTimeout(() => {
+                confirmModal.classList.add('hidden');
+                slideTicket.classList.add('hidden'); // Remove torn ticket banner
+                usedStampContainer.classList.remove('hidden'); // Show Used Stamp and Rotating Spinner
+                usedStampContainer.classList.add('flex');
+                updateDateTime(); // Set current time instantly
+            }, 250);
+        });
+
+        // --- Clock / Date Formatter ---
+        function updateDateTime() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+
+            currentDateTime.textContent = `${year}/${month}/${day} ${hours}:${minutes}`;
+        }
+
+        // Keep updating time every second
+        setInterval(updateDateTime, 1000);
+        updateDateTime();
+    </script>
+</body>
+</html>
